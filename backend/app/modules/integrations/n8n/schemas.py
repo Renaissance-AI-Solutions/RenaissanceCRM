@@ -93,6 +93,7 @@ class ClayPersonalEmail(BaseModel):
 
 class ClayPersonalEmails(BaseModel):
     """Personal emails block from Clay — matched to one person."""
+    model_config = {"extra": "ignore"}
     emails: list[ClayPersonalEmail] = []
     full_name: str | None = None
     linkedin_url: str | None = None
@@ -160,4 +161,12 @@ class CompanyWithDraftPayload(BaseModel):
     - ai_output: the AI-generated draft email data (array of model responses)
     """
     body: ClayWebhookBody
-    ai_output: list[AiOutputEntry] = []
+    ai_output: list[AiOutputBlock] = []
+
+
+# ---------------------------------------------------------------------------
+# Draft-email-sent callback schema
+# ---------------------------------------------------------------------------
+class DraftEmailSentPayload(BaseModel):
+    """Payload from n8n after it successfully sends a draft email."""
+    draft_email_id: uuid.UUID

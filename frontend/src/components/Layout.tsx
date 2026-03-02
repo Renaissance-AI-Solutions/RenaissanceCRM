@@ -19,7 +19,7 @@ export default function Layout() {
                     }}
                 >
                     <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
-                        Antigravity CRM
+                        Renaissance AI CRM
                     </h2>
                     <div className="flex items-center gap-4">
                         <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>

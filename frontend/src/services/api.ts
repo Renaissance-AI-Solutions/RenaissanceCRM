@@ -131,6 +131,19 @@ export const reportsApi = {
 };
 
 // ---------------------------------------------------------------------------
+// Draft Emails
+// ---------------------------------------------------------------------------
+export const draftEmailsApi = {
+    list: (params?: { status?: string; contact_id?: string }) =>
+        api.get('/draft-emails', { params }),
+    update: (id: string, data: { subject?: string; body?: string; status?: string }) =>
+        api.patch(`/draft-emails/${id}`, data),
+    delete: (id: string) => api.delete(`/draft-emails/${id}`),
+    /** Approve a draft and trigger the n8n send webhook */
+    send: (id: string) => api.post(`/draft-emails/${id}/send`),
+};
+
+// ---------------------------------------------------------------------------
 // Customization
 // ---------------------------------------------------------------------------
 export const customizationApi = {

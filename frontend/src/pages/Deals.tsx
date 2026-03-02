@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { dealsApi, stagesApi, contactsApi } from '../services/api';
-import { Plus, DollarSign } from 'lucide-react';
+import { Plus, DollarSign, Trash2 } from 'lucide-react';
 
 export default function Deals() {
     const queryClient = useQueryClient();
@@ -23,6 +23,11 @@ export default function Deals() {
 
     const updateMutation = useMutation({
         mutationFn: ({ id, data }: { id: string; data: any }) => dealsApi.update(id, data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['deals'] }),
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => dealsApi.delete(id),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['deals'] }),
     });
 
@@ -123,7 +128,16 @@ export default function Deals() {
                                         draggable
                                         onDragStart={(e) => handleDragStart(e, deal.id)}
                                     >
-                                        <p className="text-sm font-medium mb-1">{deal.title}</p>
+                                        <div className="flex items-start justify-between gap-1 mb-1">
+                                            <p className="text-sm font-medium">{deal.title}</p>
+                                            <button
+                                                className="btn btn-ghost"
+                                                style={{ padding: '0.15rem 0.3rem', flexShrink: 0 }}
+                                                onClick={(e) => { e.stopPropagation(); if (confirm('Delete this deal?')) deleteMutation.mutate(deal.id); }}
+                                            >
+                                                <Trash2 size={12} />
+                                            </button>
+                                        </div>
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                                                 <DollarSign size={12} />

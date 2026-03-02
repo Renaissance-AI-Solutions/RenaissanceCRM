@@ -51,6 +51,7 @@ from app.modules.activities.router import router as activities_router
 from app.modules.integrations.n8n.router import router as n8n_router
 from app.modules.reporting.router import router as reporting_router
 from app.modules.customization.router import router as customization_router
+from app.modules.draft_emails.router import router as draft_emails_router
 
 app.include_router(auth_router)
 app.include_router(contacts_router)
@@ -61,6 +62,7 @@ app.include_router(activities_router)
 app.include_router(n8n_router)
 app.include_router(reporting_router)
 app.include_router(customization_router)
+app.include_router(draft_emails_router)
 
 
 # ---------------------------------------------------------------------------

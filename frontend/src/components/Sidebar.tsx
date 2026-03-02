@@ -6,7 +6,8 @@ import {
     Handshake,
     Activity,
     Settings,
-    Zap,
+    Brain,
+    Mail,
 } from 'lucide-react';
 
 const navItems = [
@@ -15,6 +16,7 @@ const navItems = [
     { to: '/companies', icon: Building2, label: 'Companies' },
     { to: '/deals', icon: Handshake, label: 'Deals' },
     { to: '/activities', icon: Activity, label: 'Activities' },
+    { to: '/draft-emails', icon: Mail, label: 'Draft Emails' },
     { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
@@ -38,10 +40,10 @@ export default function Sidebar() {
                     className="w-8 h-8 rounded-lg flex items-center justify-center pulse-glow"
                     style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}
                 >
-                    <Zap size={18} color="white" />
+                    <Brain size={18} color="white" />
                 </div>
                 <span className="font-bold text-base" style={{ color: 'var(--color-text)' }}>
-                    Antigravity
+                    Renaissance<span style={{ color: '#6366f1' }}>AI</span>
                 </span>
             </div>
 
@@ -69,7 +71,7 @@ export default function Sidebar() {
                 className="px-5 py-4 text-xs"
                 style={{ color: 'var(--color-text-muted)', borderTop: '1px solid var(--color-border)' }}
             >
-                Antigravity CRM v1.0
+                Renaissance AI CRM v1.0
             </div>
         </aside>
     );

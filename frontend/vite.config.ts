@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: ['crm.renaissanceai.solutions', 'localhost'],
     proxy: {
       '/api': {
         target: process.env.VITE_API_URL || 'http://backend:8000',

@@ -4,7 +4,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
@@ -34,9 +34,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
-    with context.begin_transaction():
-        context.run_migrations()
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        transaction_per_migration=True,
+    )
+    context.run_migrations()
 
 
 async def run_async_migrations() -> None:
@@ -47,6 +50,7 @@ async def run_async_migrations() -> None:
         poolclass=pool.NullPool,
     )
     async with connectable.connect() as connection:
+        await connection.execute(text("COMMIT"))  # exit any implicit transaction
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../App';
 import { authApi } from '../services/api';
-import { Zap } from 'lucide-react';
+import { Brain } from 'lucide-react';
 
 export default function Login() {
     const { setUser } = useAuth();
@@ -47,11 +47,11 @@ export default function Login() {
                         className="w-10 h-10 rounded-xl flex items-center justify-center pulse-glow"
                         style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}
                     >
-                        <Zap size={22} color="white" />
+                        <Brain size={22} color="white" />
                     </div>
                     <div>
                         <h1 className="text-xl font-bold" style={{ color: 'var(--color-text)' }}>
-                            Antigravity CRM
+                            Renaissance<span style={{ color: '#6366f1' }}>AI</span> CRM
                         </h1>
                         <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                             {isRegister ? 'Create your account' : 'Sign in to continue'}

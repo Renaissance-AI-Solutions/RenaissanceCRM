@@ -16,16 +16,25 @@ down_revision: Union[str, None] = 'aed668683b04'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# Define the enum so we can create/drop it explicitly
-draft_email_status_enum = sa.Enum(
-    'DRAFT', 'APPROVED', 'SENT', 'REJECTED',
-    name='draftemailstatus',
-)
-
 
 def upgrade() -> None:
-    # Create the enum type first
-    draft_email_status_enum.create(op.get_bind(), checkfirst=True)
+    # Create enum type safely using DO block (idempotent)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'draftemailstatus') THEN
+                CREATE TYPE draftemailstatus AS ENUM ('DRAFT', 'APPROVED', 'SENT', 'REJECTED');
+            END IF;
+        END
+        $$;
+    """)
+
+    # Use create_type=False so SQLAlchemy does NOT auto-emit CREATE TYPE
+    status_col = postgresql.ENUM(
+        'DRAFT', 'APPROVED', 'SENT', 'REJECTED',
+        name='draftemailstatus',
+        create_type=False,
+    )
 
     op.create_table(
         'draft_emails',
@@ -35,7 +44,7 @@ def upgrade() -> None:
         sa.Column('contact_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('contacts.id'), nullable=False),
         sa.Column('subject', sa.String(length=500), nullable=False),
         sa.Column('body', sa.Text(), nullable=False),
-        sa.Column('status', draft_email_status_enum, nullable=False, server_default='DRAFT'),
+        sa.Column('status', status_col, nullable=False, server_default='DRAFT'),
         sa.Column('ai_model', sa.String(length=100), nullable=True),
         sa.Column('ai_reasoning', sa.Text(), nullable=True),
         sa.Column('website_snapshot', sa.Text(), nullable=True),
@@ -55,6 +64,4 @@ def downgrade() -> None:
     op.drop_index('ix_draft_emails_company', table_name='draft_emails')
     op.drop_index('ix_draft_emails_tenant', table_name='draft_emails')
     op.drop_table('draft_emails')
-
-    # Drop the enum type
-    draft_email_status_enum.drop(op.get_bind(), checkfirst=True)
+    op.execute('DROP TYPE IF EXISTS draftemailstatus')

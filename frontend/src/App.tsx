@@ -11,6 +11,7 @@ import ContactDetail from './pages/ContactDetail';
 import Deals from './pages/Deals';
 import Activities from './pages/Activities';
 import Settings from './pages/Settings';
+import DraftEmails from './pages/DraftEmails';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -88,6 +89,7 @@ function App() {
               <Route path="/contacts/:id" element={<ContactDetail />} />
               <Route path="/deals" element={<Deals />} />
               <Route path="/activities" element={<Activities />} />
+              <Route path="/draft-emails" element={<DraftEmails />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Routes>

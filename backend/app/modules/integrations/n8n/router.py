@@ -32,6 +32,7 @@ from app.modules.integrations.n8n.schemas import (
     ClayWebhookBody,
     ClayWebhookPayload,
     CompanyWithDraftPayload,
+    DraftEmailSentPayload,
     EnrichContactPayload,
     N8nActivityPayload,
     N8nDealUpdatePayload,
@@ -614,23 +615,18 @@ def _parse_ai_draft(ai_output: list) -> dict:
     model_id = None
     website_snapshot = None
 
-    for entry in ai_output:
-        model_id = entry.model_instance_id or model_id
-        for block in entry.output:
-            if block.type == "reasoning" and block.content:
-                reasoning_parts.append(block.content.strip())
-            elif block.type == "message" and block.content and block.content.strip():
-                raw = block.content.strip()
-                # Try to extract a Subject: line from the email
-                subject_match = re.search(
-                    r"\*\*Subject:\*\*\s*(.+?)(?:\n|$)", raw,
-                )
-                if subject_match:
-                    subject = subject_match.group(1).strip()
-                body = raw
-            elif block.type == "tool_call" and block.output:
-                website_snapshot = block.output
-
+    for block in ai_output:
+        if block.type == "reasoning" and block.content:
+            reasoning_parts.append(block.content.strip())
+        elif block.type == "message" and block.content and block.content.strip():
+            raw = block.content.strip()
+            # Try to extract a Subject: line from the email
+            subject_match = re.search(r"\*\*Subject:\*\*\s*(.+?)(?:\n|$)", raw)
+            if subject_match:
+                subject = subject_match.group(1).strip()
+            body = raw
+        elif block.type == "tool_call" and block.output:
+            website_snapshot = block.output
     return {
         "subject": subject,
         "body": body,
@@ -735,4 +731,41 @@ async def receive_company_with_draft(
             "draft_email_id": str(draft_email.id),
             "draft_email_status": DraftEmailStatus.DRAFT.value,
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# n8n callback — mark draft email as SENT after n8n sends it
+# ---------------------------------------------------------------------------
+@router.post("/draft-email-sent", response_model=WebhookResponse)
+async def mark_draft_email_sent(
+    payload: DraftEmailSentPayload,
+    api_key: ApiKey = Depends(api_key_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Called by n8n after it successfully sends a draft email.
+
+    Marks the DraftEmail status as SENT so the CRM reflects the send.
+    Payload: { "draft_email_id": "uuid" }
+    """
+    from datetime import datetime, timezone
+
+    result = await db.execute(
+        select(DraftEmail).where(
+            DraftEmail.id == payload.draft_email_id,
+            DraftEmail.tenant_id == api_key.tenant_id,
+        )
+    )
+    draft = result.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft email not found")
+
+    draft.status = DraftEmailStatus.SENT
+    draft.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return WebhookResponse(
+        success=True,
+        message="Draft email marked as sent",
+        data={"draft_email_id": str(draft.id), "status": "sent"},
     )

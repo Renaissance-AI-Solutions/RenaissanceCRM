@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi, customizationApi } from '../services/api';
-import { Key, Webhook, Settings as SettingsIcon, Layers, Trash2, Copy } from 'lucide-react';
+import { Key, Webhook, Settings as SettingsIcon, Layers, Trash2, Copy, Save, CheckCircle, Sparkles } from 'lucide-react';
 
 export default function Settings() {
     const [tab, setTab] = useState<'api-keys' | 'webhooks' | 'fields' | 'general'>('api-keys');
@@ -251,32 +251,243 @@ function CustomFieldsTab() {
 // General Tab
 // ---------------------------------------------------------------------------
 function GeneralTab() {
+    const queryClient = useQueryClient();
+
+    // n8n webhook state
+    const [webhookUrl, setWebhookUrl] = useState('');
+    const [webhookSaved, setWebhookSaved] = useState(false);
+
+    // LMStudio state
+    const [lmUrl, setLmUrl] = useState('');
+    const [lmApiKey, setLmApiKey] = useState('');
+    const [lmModel, setLmModel] = useState('');
+    const [lmSaved, setLmSaved] = useState(false);
+
     const { data } = useQuery({ queryKey: ['tenant-settings'], queryFn: () => customizationApi.getSettings() });
     const settings = data?.data;
 
+    // Populate fields from settings once loaded
+    useEffect(() => {
+        if (settings?.settings) {
+            const s = settings.settings;
+            if (s.n8n_email_send_webhook !== undefined) setWebhookUrl(s.n8n_email_send_webhook || '');
+            if (s.lmstudio_url !== undefined) setLmUrl(s.lmstudio_url || '');
+            if (s.lmstudio_api_key !== undefined) setLmApiKey(s.lmstudio_api_key || '');
+            if (s.lmstudio_model !== undefined) setLmModel(s.lmstudio_model || '');
+        }
+    }, [settings]);
+
+    const webhookMutation = useMutation({
+        mutationFn: (url: string) => customizationApi.updateSettings({ n8n_email_send_webhook: url }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['tenant-settings'] });
+            setWebhookSaved(true);
+            setTimeout(() => setWebhookSaved(false), 3000);
+        },
+    });
+
+    const lmstudioMutation = useMutation({
+        mutationFn: (cfg: { lmstudio_url: string; lmstudio_api_key: string; lmstudio_model: string }) =>
+            customizationApi.updateSettings(cfg),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['tenant-settings'] });
+            setLmSaved(true);
+            setTimeout(() => setLmSaved(false), 3000);
+        },
+    });
+
     return (
-        <div>
-            <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
-                Organization settings and configuration.
+        <div className="flex flex-col gap-6">
+            {/* Organization info */}
+            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                Organization settings and integration configuration.
             </p>
             {settings && (
                 <div className="card">
+                    <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.688rem' }}>
+                        Organization
+                    </h3>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Organization</label>
+                            <label className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Name</label>
                             <p className="text-sm font-medium mt-1">{settings.name}</p>
                         </div>
                         <div>
                             <label className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Slug</label>
                             <p className="text-sm font-medium mt-1">{settings.slug}</p>
                         </div>
-                        <div>
+                        <div className="col-span-2">
                             <label className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Tenant ID</label>
                             <p className="text-sm font-mono mt-1" style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>{settings.tenant_id}</p>
                         </div>
                     </div>
                 </div>
             )}
+
+            {/* n8n Integrations */}
+            <div className="card">
+                <h3
+                    className="text-sm font-semibold mb-1"
+                    style={{ color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.688rem' }}
+                >
+                    n8n Integrations
+                </h3>
+                <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
+                    When you click <strong>Approve &amp; Send</strong> on a draft email, the CRM will POST the email payload to this n8n webhook URL so n8n can send it via your email provider.
+                </p>
+
+                <label className="text-xs font-semibold block mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                    Email Send Webhook URL
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                        className="input flex-1"
+                        type="url"
+                        placeholder="https://your-n8n.com/webhook/send-email"
+                        value={webhookUrl}
+                        onChange={(e) => { setWebhookUrl(e.target.value); setWebhookSaved(false); }}
+                    />
+                    <button
+                        className="btn btn-primary"
+                        style={{ gap: 6, minWidth: 90 }}
+                        disabled={webhookMutation.isPending}
+                        onClick={() => webhookMutation.mutate(webhookUrl)}
+                    >
+                        {webhookSaved ? (
+                            <><CheckCircle size={14} /> Saved</>
+                        ) : (
+                            <><Save size={14} /> Save</>
+                        )}
+                    </button>
+                </div>
+
+                {/* Payload preview */}
+                <div style={{ marginTop: 16 }}>
+                    <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                        Payload sent to your webhook:
+                    </p>
+                    <pre
+                        style={{
+                            fontSize: '0.75rem', lineHeight: 1.6, padding: '0.75rem', borderRadius: 8,
+                            background: 'var(--color-bg)', color: 'var(--color-text-muted)', overflow: 'auto',
+                        }}
+                    >
+{`{
+  "draft_email_id": "uuid",
+  "contact_id": "uuid",
+  "contact_name": "Kimberly Young",
+  "contact_email": "kimyoung@yahoo.com",
+  "company_name": "Baptist Memorial Hospital",
+  "subject": "Email subject line",
+  "body": "Full email body text..."
+}`}
+                    </pre>
+                </div>
+
+                {/* n8n callback info */}
+                <div style={{ marginTop: 16, padding: '0.75rem', borderRadius: 8, background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)' }}>
+                    <p className="text-xs font-semibold mb-1" style={{ color: 'var(--color-primary)' }}>
+                        After n8n sends the email, close the loop:
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
+                        Have n8n call <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 4 }}>POST /api/webhooks/n8n/draft-email-sent</code> with{' '}
+                        <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 4 }}>{'{"draft_email_id": "uuid"}'}</code>{' '}
+                        to automatically mark the draft as <strong>Sent</strong> in the CRM.
+                        Use your <strong>n8n-production</strong> API key in the <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 4 }}>x-api-key</code> header.
+                    </p>
+                </div>
+            </div>
+
+            {/* AI Integration (LMStudio) */}
+            <div className="card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Sparkles size={14} color="var(--color-accent)" />
+                    <h3
+                        className="text-sm font-semibold"
+                        style={{ color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.688rem' }}
+                    >
+                        AI Integration (LMStudio)
+                    </h3>
+                </div>
+                <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
+                    Connect to your local LMStudio instance to rewrite draft emails with AI.
+                    Accessible via Tailscale VPN. Click <strong>AI Edit</strong> on any draft email to use it.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                        <label className="text-xs font-semibold block mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                            LMStudio Base URL
+                        </label>
+                        <input
+                            className="input"
+                            style={{ width: '100%' }}
+                            placeholder="http://100.x.x.x:1234"
+                            value={lmUrl}
+                            onChange={(e) => { setLmUrl(e.target.value); setLmSaved(false); }}
+                        />
+                        <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                            Your Tailscale IP + LMStudio port, e.g. <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>http://100.121.191.37:1234</code>
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-semibold block mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                            API Key
+                        </label>
+                        <input
+                            className="input"
+                            style={{ width: '100%' }}
+                            type="password"
+                            placeholder="sk-lm-..."
+                            value={lmApiKey}
+                            onChange={(e) => { setLmApiKey(e.target.value); setLmSaved(false); }}
+                            autoComplete="off"
+                        />
+                        <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                            From LMStudio → Developer → API Key
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-semibold block mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                            Default Model
+                        </label>
+                        <input
+                            className="input"
+                            style={{ width: '100%' }}
+                            placeholder="qwen/qwen3-14b"
+                            value={lmModel}
+                            onChange={(e) => { setLmModel(e.target.value); setLmSaved(false); }}
+                        />
+                        <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                            Model ID exactly as shown in LMStudio. Available models: <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>qwen/qwen3-14b</code>,{' '}
+                            <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>qwen/qwen3-32b</code>,{' '}
+                            <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>kimi-linear-48b-a3b-instruct</code>
+                        </p>
+                    </div>
+
+                    <div>
+                        <button
+                            className="btn btn-primary"
+                            style={{ gap: 6 }}
+                            disabled={lmstudioMutation.isPending}
+                            onClick={() => lmstudioMutation.mutate({ lmstudio_url: lmUrl, lmstudio_api_key: lmApiKey, lmstudio_model: lmModel })}
+                        >
+                            {lmSaved ? (
+                                <><CheckCircle size={14} /> Saved</>
+                            ) : (
+                                <><Save size={14} /> Save AI Settings</>
+                            )}
+                        </button>
+                        {lmstudioMutation.isError && (
+                            <p className="text-xs mt-2" style={{ color: 'var(--color-danger)' }}>
+                                Failed to save. Please try again.
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }

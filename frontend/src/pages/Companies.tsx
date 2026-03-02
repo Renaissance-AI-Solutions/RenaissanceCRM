@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { companiesApi } from '../services/api';
+import { companiesApi, draftEmailsApi } from '../services/api';
 import {
     Building2,
     ChevronRight,
@@ -14,6 +14,7 @@ import {
     Search,
     ShieldCheck,
     Star,
+    Trash2,
     User,
     Users,
 } from 'lucide-react';
@@ -27,7 +28,28 @@ const enrichmentBadge: Record<string, { label: string; bg: string; color: string
     failed: { label: 'Failed', bg: 'rgba(239,68,68,0.12)', color: 'var(--color-danger)' },
 };
 
-function CompanyCard({ company }: { company: any }) {
+// Email campaign status badge config
+const emailStatusBadge: Record<string, { label: string; bg: string; color: string; icon: string }> = {
+    draft:    { label: 'Draft',    bg: 'rgba(245,158,11,0.15)',  color: '#f59e0b',              icon: '✉' },
+    approved: { label: 'Approved', bg: 'rgba(99,102,241,0.15)',  color: 'var(--color-primary)', icon: '✓' },
+    sent:     { label: 'Sent',     bg: 'rgba(34,197,94,0.15)',   color: 'var(--color-success)', icon: '✉' },
+    rejected: { label: 'Rejected', bg: 'rgba(239,68,68,0.1)',    color: 'var(--color-danger)',  icon: '✗' },
+};
+
+// Priority order for showing the most important status when a company has multiple drafts
+const statusPriority: Record<string, number> = { draft: 4, approved: 3, sent: 2, rejected: 1 };
+
+function CompanyCard({
+    company,
+    onDelete,
+    contactEmailMap,
+    companyEmailStatus,
+}: {
+    company: any;
+    onDelete: (id: string) => void;
+    contactEmailMap: Map<string, string>;
+    companyEmailStatus: string | undefined;
+}) {
     const navigate = useNavigate();
     const [expanded, setExpanded] = useState(false);
 
@@ -38,6 +60,7 @@ function CompanyCard({ company }: { company: any }) {
     });
 
     const contacts = contactsData?.data || [];
+    const emailBadge = companyEmailStatus ? emailStatusBadge[companyEmailStatus] : null;
 
     return (
         <div
@@ -96,7 +119,23 @@ function CompanyCard({ company }: { company: any }) {
 
                 {/* Company info */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '1rem' }}>{company.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: '1rem' }}>{company.name}</span>
+                        {/* Email campaign status badge */}
+                        {emailBadge && (
+                            <span
+                                className="badge"
+                                style={{
+                                    background: emailBadge.bg,
+                                    color: emailBadge.color,
+                                    fontWeight: 700,
+                                    fontSize: '0.688rem',
+                                }}
+                            >
+                                {emailBadge.icon} {emailBadge.label}
+                            </span>
+                        )}
+                    </div>
                     <div
                         style={{
                             color: 'var(--color-text-muted)',
@@ -198,6 +237,25 @@ function CompanyCard({ company }: { company: any }) {
                             <MapPin size={14} />
                         </a>
                     )}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); if (confirm(`Delete ${company.name}?`)) onDelete(company.id); }}
+                        title="Delete company"
+                        style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'var(--color-bg)',
+                            color: 'var(--color-danger)',
+                            border: '1px solid var(--color-border)',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <Trash2 size={14} />
+                    </button>
                 </div>
             </button>
 
@@ -252,160 +310,179 @@ function CompanyCard({ company }: { company: any }) {
                         </div>
                     ) : (
                         <div style={{ padding: '0 0.75rem 0.75rem' }}>
-                            {contacts.map((contact: any) => (
-                                <div
-                                    key={contact.id}
-                                    onClick={() => navigate(`/contacts/${contact.id}`)}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.875rem',
-                                        padding: '0.75rem',
-                                        borderRadius: 10,
-                                        cursor: 'pointer',
-                                        transition: 'background 0.15s',
-                                        marginTop: 2,
-                                    }}
-                                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
-                                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                                >
-                                    {/* Avatar */}
+                            {contacts.map((contact: any) => {
+                                const contactEmailStatus = contactEmailMap.get(contact.id);
+                                const contactBadge = contactEmailStatus ? emailStatusBadge[contactEmailStatus] : null;
+                                return (
                                     <div
+                                        key={contact.id}
+                                        onClick={() => navigate(`/contacts/${contact.id}`)}
                                         style={{
-                                            width: 36,
-                                            height: 36,
-                                            borderRadius: '50%',
-                                            background: contact.is_primary_contact
-                                                ? 'linear-gradient(135deg, #22c55e, #16a34a)'
-                                                : 'var(--color-surface)',
-                                            border: contact.is_primary_contact
-                                                ? 'none'
-                                                : '1px solid var(--color-border)',
                                             display: 'flex',
                                             alignItems: 'center',
-                                            justifyContent: 'center',
-                                            flexShrink: 0,
-                                            position: 'relative',
+                                            gap: '0.875rem',
+                                            padding: '0.75rem',
+                                            borderRadius: 10,
+                                            cursor: 'pointer',
+                                            transition: 'background 0.15s',
+                                            marginTop: 2,
                                         }}
+                                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
+                                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                                     >
-                                        <User size={16} color={contact.is_primary_contact ? 'white' : 'var(--color-text-muted)'} />
-                                        {contact.is_primary_contact && (
-                                            <div
-                                                title="Primary contact"
-                                                style={{
-                                                    position: 'absolute',
-                                                    bottom: -2,
-                                                    right: -2,
-                                                    width: 16,
-                                                    height: 16,
-                                                    borderRadius: '50%',
-                                                    background: 'var(--color-surface)',
-                                                    border: '2px solid var(--color-bg)',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                }}
-                                            >
-                                                <ShieldCheck size={10} color="var(--color-success)" />
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Name & Title */}
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>
-                                                {contact.first_name} {contact.last_name}
-                                            </span>
-                                            {contact.is_primary_contact && (
-                                                <span
-                                                    className="badge"
-                                                    style={{
-                                                        background: 'rgba(34,197,94,0.12)',
-                                                        color: 'var(--color-success)',
-                                                        fontSize: '0.625rem',
-                                                        padding: '1px 6px',
-                                                    }}
-                                                >
-                                                    PRIMARY
-                                                </span>
-                                            )}
-                                        </div>
+                                        {/* Avatar */}
                                         <div
                                             style={{
-                                                color: 'var(--color-text-muted)',
-                                                fontSize: '0.75rem',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '0.625rem',
-                                                marginTop: 2,
-                                                flexWrap: 'wrap',
-                                            }}
-                                        >
-                                            {contact.title && <span>{contact.title}</span>}
-                                            {contact.departments?.length > 0 && (
-                                                <span style={{ opacity: 0.7 }}>
-                                                    {contact.departments.join(', ')}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Email */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                                        {contact.email ? (
-                                            <span
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 4,
-                                                    fontSize: '0.813rem',
-                                                    color: 'var(--color-text-muted)',
-                                                }}
-                                            >
-                                                <Mail size={12} /> {contact.email}
-                                            </span>
-                                        ) : (
-                                            contact.enrichment_status && enrichmentBadge[contact.enrichment_status] && (
-                                                <span
-                                                    className="badge"
-                                                    style={{
-                                                        background: enrichmentBadge[contact.enrichment_status].bg,
-                                                        color: enrichmentBadge[contact.enrichment_status].color,
-                                                    }}
-                                                >
-                                                    {enrichmentBadge[contact.enrichment_status].label}
-                                                </span>
-                                            )
-                                        )}
-                                    </div>
-
-                                    {/* LinkedIn */}
-                                    {contact.linkedin_url && (
-                                        <a
-                                            href={contact.linkedin_url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={(e) => e.stopPropagation()}
-                                            title="LinkedIn profile"
-                                            style={{
-                                                width: 28,
-                                                height: 28,
-                                                borderRadius: 6,
+                                                width: 36,
+                                                height: 36,
+                                                borderRadius: '50%',
+                                                background: contact.is_primary_contact
+                                                    ? 'linear-gradient(135deg, #22c55e, #16a34a)'
+                                                    : 'var(--color-surface)',
+                                                border: contact.is_primary_contact
+                                                    ? 'none'
+                                                    : '1px solid var(--color-border)',
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
-                                                background: 'rgba(99,102,241,0.08)',
-                                                color: 'var(--color-primary)',
                                                 flexShrink: 0,
-                                                transition: 'background 0.15s',
+                                                position: 'relative',
                                             }}
                                         >
-                                            <Linkedin size={13} />
-                                        </a>
-                                    )}
-                                </div>
-                            ))}
+                                            <User size={16} color={contact.is_primary_contact ? 'white' : 'var(--color-text-muted)'} />
+                                            {contact.is_primary_contact && (
+                                                <div
+                                                    title="Primary contact"
+                                                    style={{
+                                                        position: 'absolute',
+                                                        bottom: -2,
+                                                        right: -2,
+                                                        width: 16,
+                                                        height: 16,
+                                                        borderRadius: '50%',
+                                                        background: 'var(--color-surface)',
+                                                        border: '2px solid var(--color-bg)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                    }}
+                                                >
+                                                    <ShieldCheck size={10} color="var(--color-success)" />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Name & Title */}
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                                <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>
+                                                    {contact.first_name} {contact.last_name}
+                                                </span>
+                                                {contact.is_primary_contact && (
+                                                    <span
+                                                        className="badge"
+                                                        style={{
+                                                            background: 'rgba(34,197,94,0.12)',
+                                                            color: 'var(--color-success)',
+                                                            fontSize: '0.625rem',
+                                                            padding: '1px 6px',
+                                                        }}
+                                                    >
+                                                        PRIMARY
+                                                    </span>
+                                                )}
+                                                {/* Per-contact email campaign badge */}
+                                                {contactBadge && (
+                                                    <span
+                                                        className="badge"
+                                                        style={{
+                                                            background: contactBadge.bg,
+                                                            color: contactBadge.color,
+                                                            fontSize: '0.625rem',
+                                                            padding: '1px 6px',
+                                                            fontWeight: 700,
+                                                        }}
+                                                    >
+                                                        {contactBadge.icon} {contactBadge.label}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div
+                                                style={{
+                                                    color: 'var(--color-text-muted)',
+                                                    fontSize: '0.75rem',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.625rem',
+                                                    marginTop: 2,
+                                                    flexWrap: 'wrap',
+                                                }}
+                                            >
+                                                {contact.title && <span>{contact.title}</span>}
+                                                {contact.departments?.length > 0 && (
+                                                    <span style={{ opacity: 0.7 }}>
+                                                        {contact.departments.join(', ')}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Email */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                            {contact.email ? (
+                                                <span
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        fontSize: '0.813rem',
+                                                        color: 'var(--color-text-muted)',
+                                                    }}
+                                                >
+                                                    <Mail size={12} /> {contact.email}
+                                                </span>
+                                            ) : (
+                                                contact.enrichment_status && enrichmentBadge[contact.enrichment_status] && (
+                                                    <span
+                                                        className="badge"
+                                                        style={{
+                                                            background: enrichmentBadge[contact.enrichment_status].bg,
+                                                            color: enrichmentBadge[contact.enrichment_status].color,
+                                                        }}
+                                                    >
+                                                        {enrichmentBadge[contact.enrichment_status].label}
+                                                    </span>
+                                                )
+                                            )}
+                                        </div>
+
+                                        {/* LinkedIn */}
+                                        {contact.linkedin_url && (
+                                            <a
+                                                href={contact.linkedin_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                title="LinkedIn profile"
+                                                style={{
+                                                    width: 28,
+                                                    height: 28,
+                                                    borderRadius: 6,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    background: 'rgba(99,102,241,0.08)',
+                                                    color: 'var(--color-primary)',
+                                                    flexShrink: 0,
+                                                    transition: 'background 0.15s',
+                                                }}
+                                            >
+                                                <Linkedin size={13} />
+                                            </a>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -416,10 +493,23 @@ function CompanyCard({ company }: { company: any }) {
 
 export default function Companies() {
     const [search, setSearch] = useState('');
+    const queryClient = useQueryClient();
 
     const { data, isLoading } = useQuery({
         queryKey: ['companies'],
         queryFn: () => companiesApi.list(),
+    });
+
+    // Fetch all draft emails to show campaign status on company/contact cards
+    const { data: draftsRes } = useQuery({
+        queryKey: ['all-draft-emails'],
+        queryFn: () => draftEmailsApi.list(),
+        staleTime: 30_000,
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => companiesApi.delete(id),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companies'] }),
     });
 
     const allCompanies = data?.data || [];
@@ -431,6 +521,23 @@ export default function Companies() {
                 c.address?.toLowerCase().includes(search.toLowerCase())
         )
         : allCompanies;
+
+    // Build maps from draft emails
+    const contactEmailMap = new Map<string, string>();
+    const companyEmailMap = new Map<string, string>();
+
+    for (const draft of (draftsRes?.data?.items || [])) {
+        // Per-contact: highest priority status
+        const currentContact = contactEmailMap.get(draft.contact_id);
+        if (!currentContact || (statusPriority[draft.status] || 0) > (statusPriority[currentContact] || 0)) {
+            contactEmailMap.set(draft.contact_id, draft.status);
+        }
+        // Per-company: highest priority status across all contacts
+        const currentCompany = companyEmailMap.get(draft.company_id);
+        if (!currentCompany || (statusPriority[draft.status] || 0) > (statusPriority[currentCompany] || 0)) {
+            companyEmailMap.set(draft.company_id, draft.status);
+        }
+    }
 
     return (
         <div className="animate-in">
@@ -479,7 +586,13 @@ export default function Companies() {
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {companies.map((company: any) => (
-                        <CompanyCard key={company.id} company={company} />
+                        <CompanyCard
+                            key={company.id}
+                            company={company}
+                            onDelete={(id) => deleteMutation.mutate(id)}
+                            contactEmailMap={contactEmailMap}
+                            companyEmailStatus={companyEmailMap.get(company.id)}
+                        />
                     ))}
                 </div>
             )}

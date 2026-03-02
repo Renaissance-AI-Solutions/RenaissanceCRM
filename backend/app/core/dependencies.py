@@ -62,7 +62,6 @@ async def api_key_auth(
     db: AsyncSession = Depends(get_db),
 ) -> ApiKey:
     """Authenticate via API key (for n8n integrations)."""
-    from app.core.security import pwd_context
 
     # Look up by prefix for efficient querying
     prefix = x_api_key[:8] if len(x_api_key) >= 8 else x_api_key
@@ -73,7 +72,7 @@ async def api_key_auth(
     api_keys = result.scalars().all()
 
     for api_key in api_keys:
-        if pwd_context.verify(x_api_key, api_key.key_hash):
+        if verify_password(x_api_key, api_key.key_hash):
             # Check expiration
             if api_key.expires_at and api_key.expires_at < datetime.now(timezone.utc):
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key expired")
