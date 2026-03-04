@@ -158,3 +158,14 @@ export const customizationApi = {
 };
 
 export default api;
+
+// ---------------------------------------------------------------------------
+// Email Threads
+// ---------------------------------------------------------------------------
+export const emailThreadsApi = {
+    list: (params?: { contact_id?: string; status?: string }) =>
+        api.get('/email-threads', { params }),
+    get: (id: string) => api.get(`/email-threads/${id}`),
+    update: (id: string, data: { status: string }) =>
+        api.patch(`/email-threads/${id}`, data),
+};

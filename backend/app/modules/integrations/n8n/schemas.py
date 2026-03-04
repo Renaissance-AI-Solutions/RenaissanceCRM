@@ -154,12 +154,7 @@ class AiOutputEntry(BaseModel):
 
 
 class CompanyWithDraftPayload(BaseModel):
-    """Top-level payload for the combined company + draft email endpoint.
-
-    N8N sends this as a single POST containing:
-    - body: the Clay webhook body (company + people + personal_emails)
-    - ai_output: the AI-generated draft email data (array of model responses)
-    """
+    """Top-level payload for the combined company + draft email endpoint."""
     body: ClayWebhookBody
     ai_output: list[AiOutputBlock] = []
 
@@ -168,5 +163,14 @@ class CompanyWithDraftPayload(BaseModel):
 # Draft-email-sent callback schema
 # ---------------------------------------------------------------------------
 class DraftEmailSentPayload(BaseModel):
-    """Payload from n8n after it successfully sends a draft email."""
+    """Payload from n8n after it successfully sends a draft email.
+
+    n8n should include the Gmail Message-ID and Thread-ID from the sent email
+    so the CRM can link future replies back to the correct thread.
+
+    Minimal payload: { "draft_email_id": "uuid" }
+    Full payload:    { "draft_email_id": "uuid", "gmail_message_id": "...", "gmail_thread_id": "..." }
+    """
     draft_email_id: uuid.UUID
+    gmail_message_id: str | None = None   # Gmail's Message-ID header of the sent email
+    gmail_thread_id: str | None = None    # Gmail's threadId for the conversation

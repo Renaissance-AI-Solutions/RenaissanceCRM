@@ -76,6 +76,11 @@ class DraftEmailStatus(str, enum.Enum):
     REJECTED = "rejected"        # user rejected the draft
 
 
+class EmailThreadStatus(str, enum.Enum):
+    ACTIVE = "active"            # conversation ongoing
+    CLOSED = "closed"            # conversation closed
+
+
 class CustomFieldType(str, enum.Enum):
     TEXT = "text"
     NUMBER = "number"
@@ -109,6 +114,7 @@ class Tenant(Base):
     deals: Mapped[list["Deal"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
     pipeline_stages: Mapped[list["PipelineStage"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
     api_keys: Mapped[list["ApiKey"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    email_threads: Mapped[list["EmailThread"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +189,7 @@ class Company(Base):
     tenant: Mapped["Tenant"] = relationship(back_populates="companies")
     contacts: Mapped[list["Contact"]] = relationship(back_populates="company")
     draft_emails: Mapped[list["DraftEmail"]] = relationship(back_populates="company")
+    email_threads: Mapped[list["EmailThread"]] = relationship(back_populates="company")
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +232,7 @@ class Contact(Base):
     deals: Mapped[list["Deal"]] = relationship(back_populates="contact")
     activities: Mapped[list["Activity"]] = relationship(back_populates="contact")
     draft_emails: Mapped[list["DraftEmail"]] = relationship(back_populates="contact")
+    email_threads: Mapped[list["EmailThread"]] = relationship(back_populates="contact")
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +298,7 @@ class Activity(Base):
         Index("ix_activities_contact", "contact_id"),
         Index("ix_activities_deal", "deal_id"),
         Index("ix_activities_created", "created_at"),
+        Index("ix_activities_thread", "thread_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
@@ -297,11 +306,13 @@ class Activity(Base):
     contact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("contacts.id"), nullable=True)
     deal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("deals.id"), nullable=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    thread_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("email_threads.id"), nullable=True)
+    gmail_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     type: Mapped[ActivityType] = mapped_column(Enum(ActivityType), nullable=False)
     subject: Mapped[str] = mapped_column(String(500), nullable=False)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, server_default="{}")
-    source: Mapped[str] = mapped_column(String(50), default="manual")  # manual, n8n, system
+    source: Mapped[str] = mapped_column(String(50), default="manual")  # manual, n8n, system, gmail
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -309,6 +320,7 @@ class Activity(Base):
     contact: Mapped["Contact | None"] = relationship(back_populates="activities")
     deal: Mapped["Deal | None"] = relationship(back_populates="activities")
     user: Mapped["User | None"] = relationship(back_populates="activities")
+    thread: Mapped["EmailThread | None"] = relationship(back_populates="activities")
 
 
 # ---------------------------------------------------------------------------
@@ -362,13 +374,45 @@ class WebhookConfig(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
-    event: Mapped[str] = mapped_column(String(100), nullable=False)  # contact.created, deal.stage_changed, etc.
+    event: Mapped[str] = mapped_column(String(100), nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False)
     secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     headers: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Email Thread
+# ---------------------------------------------------------------------------
+class EmailThread(Base):
+    """Groups all inbound/outbound emails for a single conversation with a contact."""
+    __tablename__ = "email_threads"
+    __table_args__ = (
+        Index("ix_email_threads_tenant", "tenant_id"),
+        Index("ix_email_threads_contact", "contact_id"),
+        Index("ix_email_threads_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    contact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contacts.id"), nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)  # Subject of the first email
+    gmail_thread_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Gmail's native thread ID
+    status: Mapped[EmailThreadStatus] = mapped_column(
+        Enum(EmailThreadStatus), default=EmailThreadStatus.ACTIVE, nullable=False
+    )
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    tenant: Mapped["Tenant"] = relationship(back_populates="email_threads")
+    contact: Mapped["Contact"] = relationship(back_populates="email_threads")
+    company: Mapped["Company | None"] = relationship(back_populates="email_threads")
+    draft_emails: Mapped[list["DraftEmail"]] = relationship(back_populates="thread")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="thread")
 
 
 # ---------------------------------------------------------------------------
@@ -381,12 +425,15 @@ class DraftEmail(Base):
         Index("ix_draft_emails_company", "company_id"),
         Index("ix_draft_emails_contact", "contact_id"),
         Index("ix_draft_emails_status", "status"),
+        Index("ix_draft_emails_thread", "thread_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     contact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contacts.id"), nullable=False)
+    thread_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("email_threads.id"), nullable=True)
+    gmail_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Gmail Message-ID after sending
     subject: Mapped[str] = mapped_column(String(500), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[DraftEmailStatus] = mapped_column(
@@ -400,3 +447,4 @@ class DraftEmail(Base):
 
     company: Mapped["Company"] = relationship(back_populates="draft_emails")
     contact: Mapped["Contact"] = relationship(back_populates="draft_emails")
+    thread: Mapped["EmailThread | None"] = relationship(back_populates="draft_emails")

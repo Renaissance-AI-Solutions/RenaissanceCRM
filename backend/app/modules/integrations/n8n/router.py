@@ -745,10 +745,14 @@ async def mark_draft_email_sent(
 ):
     """Called by n8n after it successfully sends a draft email.
 
-    Marks the DraftEmail status as SENT so the CRM reflects the send.
-    Payload: { "draft_email_id": "uuid" }
+    Marks the DraftEmail status as SENT, stores Gmail IDs, and
+    creates/updates the EmailThread for future reply tracking.
+
+    Minimal payload: { "draft_email_id": "uuid" }
+    Full payload:    { "draft_email_id": "uuid", "gmail_message_id": "...", "gmail_thread_id": "..." }
     """
     from datetime import datetime, timezone
+    from app.models.models import EmailThread, EmailThreadStatus
 
     result = await db.execute(
         select(DraftEmail).where(
@@ -760,12 +764,48 @@ async def mark_draft_email_sent(
     if not draft:
         raise HTTPException(status_code=404, detail="Draft email not found")
 
+    now = datetime.now(timezone.utc)
     draft.status = DraftEmailStatus.SENT
-    draft.updated_at = datetime.now(timezone.utc)
+    draft.updated_at = now
+
+    # Store Gmail IDs if provided by n8n
+    if payload.gmail_message_id:
+        draft.gmail_message_id = payload.gmail_message_id
+
+    # Find or create EmailThread for this conversation
+    thread = None
+    if draft.thread_id:
+        thread_result = await db.execute(
+            select(EmailThread).where(EmailThread.id == draft.thread_id)
+        )
+        thread = thread_result.scalar_one_or_none()
+
+    if not thread:
+        thread = EmailThread(
+            tenant_id=api_key.tenant_id,
+            contact_id=draft.contact_id,
+            company_id=draft.company_id,
+            subject=draft.subject,
+            gmail_thread_id=payload.gmail_thread_id,
+            status=EmailThreadStatus.ACTIVE,
+            last_activity_at=now,
+        )
+        db.add(thread)
+        await db.flush()
+        draft.thread_id = thread.id
+    else:
+        thread.last_activity_at = now
+        if payload.gmail_thread_id and not thread.gmail_thread_id:
+            thread.gmail_thread_id = payload.gmail_thread_id
+
     await db.commit()
 
     return WebhookResponse(
         success=True,
         message="Draft email marked as sent",
-        data={"draft_email_id": str(draft.id), "status": "sent"},
+        data={
+            "draft_email_id": str(draft.id),
+            "status": "sent",
+            "thread_id": str(thread.id),
+        },
     )

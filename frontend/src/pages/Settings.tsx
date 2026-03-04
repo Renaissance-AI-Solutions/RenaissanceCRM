@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi, customizationApi } from '../services/api';
-import { Key, Webhook, Settings as SettingsIcon, Layers, Trash2, Copy, Save, CheckCircle, Sparkles } from 'lucide-react';
+import { Key, Webhook, Settings as SettingsIcon, Layers, Trash2, Copy, Save, CheckCircle, Sparkles, Mail, Wifi, WifiOff } from 'lucide-react';
+import api from '../services/api';
 
 export default function Settings() {
     const [tab, setTab] = useState<'api-keys' | 'webhooks' | 'fields' | 'general'>('api-keys');
@@ -263,6 +264,15 @@ function GeneralTab() {
     const [lmModel, setLmModel] = useState('');
     const [lmSaved, setLmSaved] = useState(false);
 
+    // Gmail state
+    const [gmailClientId, setGmailClientId] = useState('');
+    const [gmailClientSecret, setGmailClientSecret] = useState('');
+    const [gmailRefreshToken, setGmailRefreshToken] = useState('');
+    const [gmailPollEnabled, setGmailPollEnabled] = useState(false);
+    const [gmailSaved, setGmailSaved] = useState(false);
+    const [gmailStatus, setGmailStatus] = useState<{ connected: boolean; email?: string; error?: string; last_polled_at?: string } | null>(null);
+    const [gmailTesting, setGmailTesting] = useState(false);
+
     const { data } = useQuery({ queryKey: ['tenant-settings'], queryFn: () => customizationApi.getSettings() });
     const settings = data?.data;
 
@@ -274,8 +284,19 @@ function GeneralTab() {
             if (s.lmstudio_url !== undefined) setLmUrl(s.lmstudio_url || '');
             if (s.lmstudio_api_key !== undefined) setLmApiKey(s.lmstudio_api_key || '');
             if (s.lmstudio_model !== undefined) setLmModel(s.lmstudio_model || '');
+            if (s.gmail_client_id !== undefined) setGmailClientId(s.gmail_client_id || '');
+            if (s.gmail_client_secret !== undefined) setGmailClientSecret(s.gmail_client_secret || '');
+            if (s.gmail_refresh_token !== undefined) setGmailRefreshToken(s.gmail_refresh_token || '');
+            if (s.gmail_poll_enabled !== undefined) setGmailPollEnabled(!!s.gmail_poll_enabled);
         }
     }, [settings]);
+
+    // Load Gmail status on mount
+    useEffect(() => {
+        api.get('/api/gmail/status')
+            .then(res => setGmailStatus(res.data))
+            .catch(() => setGmailStatus({ connected: false }));
+    }, []);
 
     const webhookMutation = useMutation({
         mutationFn: (url: string) => customizationApi.updateSettings({ n8n_email_send_webhook: url }),
@@ -295,6 +316,28 @@ function GeneralTab() {
             setTimeout(() => setLmSaved(false), 3000);
         },
     });
+
+    const gmailMutation = useMutation({
+        mutationFn: (cfg: { gmail_client_id: string; gmail_client_secret: string; gmail_refresh_token: string; gmail_poll_enabled: boolean }) =>
+            customizationApi.updateSettings(cfg),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['tenant-settings'] });
+            setGmailSaved(true);
+            setTimeout(() => setGmailSaved(false), 3000);
+        },
+    });
+
+    const testGmailConnection = async () => {
+        setGmailTesting(true);
+        try {
+            const res = await api.post('/api/gmail/test');
+            setGmailStatus({ connected: true, email: res.data.email });
+        } catch (err: any) {
+            setGmailStatus({ connected: false, error: err?.response?.data?.detail || 'Connection failed' });
+        } finally {
+            setGmailTesting(false);
+        }
+    };
 
     return (
         <div className="flex flex-col gap-6">
@@ -485,6 +528,125 @@ function GeneralTab() {
                                 Failed to save. Please try again.
                             </p>
                         )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Gmail Integration */}
+            <div className="card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Mail size={14} color="var(--color-primary)" />
+                    <h3
+                        className="text-sm font-semibold"
+                        style={{ color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.688rem' }}
+                    >
+                        Gmail Integration
+                    </h3>
+                    {gmailStatus && (
+                        <span
+                            style={{
+                                marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4,
+                                fontSize: '0.75rem', fontWeight: 600,
+                                color: gmailStatus.connected ? 'var(--color-success)' : 'var(--color-text-muted)',
+                            }}
+                        >
+                            {gmailStatus.connected
+                                ? <><Wifi size={12} /> {gmailStatus.email}</>
+                                : <><WifiOff size={12} /> Not connected</>}
+                        </span>
+                    )}
+                </div>
+                <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
+                    Connect Gmail to automatically capture inbound replies and auto-draft AI responses.
+                    Polling runs every 2 minutes in the background.
+                </p>
+
+                {/* Setup instructions */}
+                <div style={{ marginBottom: 16, padding: '0.75rem', borderRadius: 8, background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)' }}>
+                    <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-primary)' }}>Setup (one-time):</p>
+                    <ol style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', lineHeight: 1.8, paddingLeft: 16, margin: 0 }}>
+                        <li>Go to <strong>console.cloud.google.com</strong> → Create project → Enable Gmail API</li>
+                        <li>Create OAuth credentials → type: <strong>Desktop app</strong> → Download JSON</li>
+                        <li>Run <code style={{ background: 'var(--color-bg)', padding: '1px 4px', borderRadius: 3 }}>python get_gmail_token.py</code> from the repo root on your local machine</li>
+                        <li>Paste the Client ID, Client Secret, and Refresh Token below → Save → Test</li>
+                    </ol>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                        <label className="text-xs font-semibold block mb-1" style={{ color: 'var(--color-text-muted)' }}>Client ID</label>
+                        <input
+                            className="input"
+                            style={{ width: '100%' }}
+                            placeholder="1234567890-abc.apps.googleusercontent.com"
+                            value={gmailClientId}
+                            onChange={(e) => { setGmailClientId(e.target.value); setGmailSaved(false); }}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-semibold block mb-1" style={{ color: 'var(--color-text-muted)' }}>Client Secret</label>
+                        <input
+                            className="input"
+                            style={{ width: '100%' }}
+                            type="password"
+                            placeholder="GOCSPX-..."
+                            value={gmailClientSecret}
+                            onChange={(e) => { setGmailClientSecret(e.target.value); setGmailSaved(false); }}
+                            autoComplete="off"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-semibold block mb-1" style={{ color: 'var(--color-text-muted)' }}>Refresh Token</label>
+                        <input
+                            className="input"
+                            style={{ width: '100%' }}
+                            type="password"
+                            placeholder="1//0g..."
+                            value={gmailRefreshToken}
+                            onChange={(e) => { setGmailRefreshToken(e.target.value); setGmailSaved(false); }}
+                            autoComplete="off"
+                        />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={gmailPollEnabled}
+                                onChange={(e) => { setGmailPollEnabled(e.target.checked); setGmailSaved(false); }}
+                            />
+                            Enable polling (every 2 min)
+                        </label>
+                        {gmailStatus?.last_polled_at && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                Last polled: {new Date(gmailStatus.last_polled_at).toLocaleTimeString()}
+                            </span>
+                        )}
+                    </div>
+                    {gmailStatus?.error && (
+                        <p style={{ fontSize: '0.75rem', color: 'var(--color-danger)' }}>⚠ {gmailStatus.error}</p>
+                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                            className="btn btn-primary"
+                            style={{ gap: 6 }}
+                            disabled={gmailMutation.isPending}
+                            onClick={() => gmailMutation.mutate({
+                                gmail_client_id: gmailClientId,
+                                gmail_client_secret: gmailClientSecret,
+                                gmail_refresh_token: gmailRefreshToken,
+                                gmail_poll_enabled: gmailPollEnabled,
+                            })}
+                        >
+                            {gmailSaved ? <><CheckCircle size={14} /> Saved</> : <><Save size={14} /> Save Gmail Settings</>}
+                        </button>
+                        <button
+                            className="btn btn-ghost"
+                            style={{ gap: 6 }}
+                            disabled={gmailTesting || !gmailClientId}
+                            onClick={testGmailConnection}
+                        >
+                            {gmailTesting ? 'Testing…' : <><Wifi size={14} /> Test Connection</>}
+                        </button>
                     </div>
                 </div>
             </div>
